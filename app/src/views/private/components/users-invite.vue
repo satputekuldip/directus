@@ -32,6 +32,8 @@ watch(
 );
 
 async function inviteUsers() {
+	if (emails.value.length === 0 || loading.value) return;
+
 	loading.value = true;
 
 	try {
@@ -88,6 +90,7 @@ async function loadRoles() {
 		:model-value="modelValue"
 		@update:model-value="$emit('update:modelValue', $event)"
 		@esc="$emit('update:modelValue', false)"
+		@apply="inviteUsers"
 	>
 		<v-card>
 			<v-card-title>{{ t('invite_users') }}</v-card-title>
@@ -126,12 +129,12 @@ async function loadRoles() {
 </template>
 
 <style lang="scss" scoped>
-@import '@/styles/mixins/form-grid';
+@use '@/styles/mixins';
 
 .grid {
 	--theme--form--row-gap: 20px;
 
-	@include form-grid;
+	@include mixins.form-grid;
 }
 
 .v-card-title {

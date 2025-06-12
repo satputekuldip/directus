@@ -4,12 +4,14 @@ import { DisplayItem, RelationQueryMultiple, useRelationMultiple } from '@/compo
 import { useRelationPermissionsM2M } from '@/composables/use-relation-permissions';
 import { adjustFieldsForDisplays } from '@/utils/adjust-fields-for-displays';
 import { getAssetUrl } from '@/utils/get-asset-url';
+import { parseFilter } from '@/utils/parse-filter';
 import DrawerFiles from '@/views/private/components/drawer-files.vue';
 import DrawerItem from '@/views/private/components/drawer-item.vue';
 import { Filter } from '@directus/types';
-import { getFieldsFromTemplate } from '@directus/utils';
+import { deepMap, getFieldsFromTemplate } from '@directus/utils';
 import { clamp, get, isEmpty, isNil, set } from 'lodash';
-import { computed, ref, toRefs } from 'vue';
+import { render } from 'micromustache';
+import { computed, inject, ref, toRefs } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Draggable from 'vuedraggable';
 
@@ -24,6 +26,7 @@ const props = withDefaults(
 		enableCreate?: boolean;
 		enableSelect?: boolean;
 		folder?: string;
+		filter?: Filter;
 		showNavigation?: boolean;
 		limit?: number;
 	}>(),
@@ -110,12 +113,6 @@ const {
 const { createAllowed, updateAllowed, selectAllowed, deleteAllowed } = useRelationPermissionsM2M(relationInfo);
 
 const pageCount = computed(() => Math.ceil(totalItemCount.value / limit.value));
-
-function getDeselectIcon(item: DisplayItem) {
-	if (item.$type === 'deleted') return 'settings_backup_restore';
-	if (isLocalItem(item)) return 'delete';
-	return 'close';
-}
 
 function sortItems(items: DisplayItem[]) {
 	const info = relationInfo.value;
@@ -246,6 +243,8 @@ function getDownloadName(junctionRow: Record<string, any>) {
 	return junctionRow[junctionField]?.filename_download;
 }
 
+const values = inject('values', ref<Record<string, unknown>>({}));
+
 const customFilter = computed(() => {
 	if (!relationInfo.value) return;
 
@@ -274,6 +273,20 @@ const customFilter = computed(() => {
 	}
 
 	if (props.primaryKey !== '+') filter._and.push(selectFilter);
+
+	if (props.filter) {
+		filter._and.push(
+			parseFilter(
+				deepMap(props.filter, (val: unknown) => {
+					if (val && typeof val === 'string') {
+						return render(val, values.value);
+					}
+
+					return val;
+				}),
+			),
+		);
+	}
 
 	return filter;
 });
@@ -305,7 +318,6 @@ const allowDrag = computed(
 				v-else
 				:model-value="displayItems"
 				tag="v-list"
-				class="files"
 				item-key="id"
 				handle=".drag-handle"
 				:disabled="!allowDrag"
@@ -322,38 +334,46 @@ const allowDrag = computed(
 						@click="editItem(element)"
 					>
 						<v-icon v-if="allowDrag" name="drag_handle" class="drag-handle" left @click.stop="() => {}" />
+
 						<render-template
 							:collection="relationInfo.junctionCollection.collection"
 							:item="element"
 							:template="templateWithDefaults"
 						/>
-						<div class="spacer" />
-						<v-icon
-							v-if="!disabled && (deleteAllowed || isLocalItem(element))"
-							:name="getDeselectIcon(element)"
-							class="deselect"
-							@click.stop="deleteItem(element)"
-						/>
-						<v-menu show-arrow placement="bottom-end">
-							<template #activator="{ toggle }">
-								<v-icon name="more_vert" clickable @click.stop="toggle" />
-							</template>
 
-							<v-list>
-								<v-list-item clickable :href="getAssetUrl(getFilename(element))">
-									<v-list-item-icon><v-icon name="launch" /></v-list-item-icon>
-									<v-list-item-content>{{ t('open_file_in_tab') }}</v-list-item-content>
-								</v-list-item>
-								<v-list-item
-									clickable
-									:download="getDownloadName(element)"
-									:href="getAssetUrl(getFilename(element), true)"
-								>
-									<v-list-item-icon><v-icon name="download" /></v-list-item-icon>
-									<v-list-item-content>{{ t('download_file') }}</v-list-item-content>
-								</v-list-item>
-							</v-list>
-						</v-menu>
+						<div class="spacer" />
+
+						<div class="item-actions">
+							<v-remove
+								v-if="!disabled && (deleteAllowed || isLocalItem(element))"
+								:item-type="element.$type"
+								:item-info="relationInfo"
+								:item-is-local="isLocalItem(element)"
+								:item-edits="getItemEdits(element)"
+								@action="deleteItem(element)"
+							/>
+
+							<v-menu show-arrow placement="bottom-end">
+								<template #activator="{ toggle }">
+									<v-icon name="more_vert" clickable @click.stop="toggle" />
+								</template>
+
+								<v-list>
+									<v-list-item clickable :href="getAssetUrl(getFilename(element))">
+										<v-list-item-icon><v-icon name="launch" /></v-list-item-icon>
+										<v-list-item-content>{{ t('open_file_in_tab') }}</v-list-item-content>
+									</v-list-item>
+									<v-list-item
+										clickable
+										:download="getDownloadName(element)"
+										:href="getAssetUrl(getFilename(element), true)"
+									>
+										<v-list-item-icon><v-icon name="download" /></v-list-item-icon>
+										<v-list-item-content>{{ t('download_file') }}</v-list-item-content>
+									</v-list-item>
+								</v-list>
+							</v-menu>
+						</div>
 					</v-list-item>
 				</template>
 			</draggable>
@@ -419,49 +439,17 @@ const allowDrag = computed(
 </template>
 
 <style lang="scss" scoped>
-.v-list.files {
-	--v-list-padding: 0 0 4px;
+@use '@/styles/mixins';
 
-	.v-list-item.deleted {
-		--v-list-item-border-color: var(--danger-25);
-		--v-list-item-border-color-hover: var(--danger-50);
-		--v-list-item-background-color: var(--danger-10);
-		--v-list-item-background-color-hover: var(--danger-25);
+.v-list {
+	@include mixins.list-interface($deleteable: true);
+}
 
-		::v-deep(.v-icon) {
-			color: var(--danger-75);
-		}
-	}
+.item-actions {
+	@include mixins.list-interface-item-actions;
 }
 
 .actions {
-	margin-top: 8px;
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 8px;
-
-	.v-pagination {
-		margin-left: auto;
-
-		::v-deep(.v-button) {
-			display: inline-flex;
-		}
-	}
-}
-
-.deselect {
-	--v-icon-color: var(--theme--form--field--input--foreground-subdued);
-	margin-right: 4px;
-	transition: color var(--fast) var(--transition);
-	cursor: pointer;
-
-	&:hover {
-		--v-icon-color: var(--theme--danger);
-	}
-}
-
-.render-template {
-	height: 100%;
+	@include mixins.list-interface-actions($pagination: true);
 }
 </style>

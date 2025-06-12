@@ -3,6 +3,7 @@ import formatTitle from '@directus/format-title';
 import { spec } from '@directus/specs';
 import { isSystemCollection } from '@directus/system-data';
 import type { Accountability, FieldOverview, Permission, SchemaOverview, Type } from '@directus/types';
+import { getRelation } from '@directus/utils';
 import { version } from 'directus/version';
 import type { Knex } from 'knex';
 import { cloneDeep, mergeWith } from 'lodash-es';
@@ -84,7 +85,7 @@ class OASSpecsService implements SpecificationSubService {
 		}
 
 		const tags = await this.generateTags(schemaForSpec);
-		const paths = await this.generatePaths(permissions, tags);
+		const paths = await this.generatePaths(schemaForSpec, permissions, tags);
 		const components = await this.generateComponents(schemaForSpec, tags);
 
 		const isDefaultPublicUrl = env['PUBLIC_URL'] === '/';
@@ -159,7 +160,11 @@ class OASSpecsService implements SpecificationSubService {
 		return tags.filter((tag) => tag.name !== 'Items');
 	}
 
-	private async generatePaths(permissions: Permission[], tags: OpenAPIObject['tags']): Promise<OpenAPIObject['paths']> {
+	private async generatePaths(
+		schema: SchemaOverview,
+		permissions: Permission[],
+		tags: OpenAPIObject['tags'],
+	): Promise<OpenAPIObject['paths']> {
 		const paths: OpenAPIObject['paths'] = {};
 
 		if (!tags) return paths;
@@ -255,11 +260,16 @@ class OASSpecsService implements SpecificationSubService {
 															'application/json': {
 																schema: {
 																	properties: {
-																		data: {
-																			items: {
-																				$ref: `#/components/schemas/${tag.name}`,
-																			},
-																		},
+																		data: schema.collections[collection]?.singleton
+																			? {
+																					$ref: `#/components/schemas/${tag.name}`,
+																			  }
+																			: {
+																					type: 'array',
+																					items: {
+																						$ref: `#/components/schemas/${tag.name}`,
+																					},
+																			  },
 																	},
 																},
 															},
@@ -447,11 +457,7 @@ class OASSpecsService implements SpecificationSubService {
 			propertyObject.description = field.note;
 		}
 
-		const relation = schema.relations.find(
-			(relation) =>
-				(relation.collection === collection && relation.field === field.field) ||
-				(relation.related_collection === collection && relation.meta?.one_field === field.field),
-		);
+		const relation = getRelation(schema.relations, collection, field.field);
 
 		if (!relation) {
 			propertyObject = {

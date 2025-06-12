@@ -1,5 +1,6 @@
 import { REGEX_BETWEEN_PARENS } from '@directus/constants';
 import type { Accountability, Query, SchemaOverview } from '@directus/types';
+import { getRelation } from '@directus/utils';
 import type { Knex } from 'knex';
 import { isEmpty } from 'lodash-es';
 import { fetchPermissions } from '../../../permissions/lib/fetch-permissions.js';
@@ -9,7 +10,6 @@ import { getRelationType } from '../../../utils/get-relation-type.js';
 import { getAllowedSort } from '../utils/get-allowed-sort.js';
 import { getDeepQuery } from '../utils/get-deep-query.js';
 import { getRelatedCollection } from '../utils/get-related-collection.js';
-import { getRelation } from '../utils/get-relation.js';
 import { convertWildcards } from './convert-wildcards.js';
 
 interface CollectionScope {
@@ -39,8 +39,8 @@ export async function parseFields(
 	fields = await convertWildcards(
 		{
 			fields,
-			parentCollection: options.parentCollection,
-			query: options.query,
+			collection: options.parentCollection,
+			alias: options.query.alias,
 			accountability: options.accountability,
 		},
 		context,
@@ -161,7 +161,7 @@ export async function parseFields(
 		}
 
 		const relatedCollection = getRelatedCollection(context.schema, options.parentCollection, fieldName);
-		const relation = getRelation(context.schema, options.parentCollection, fieldName);
+		const relation = getRelation(context.schema.relations, options.parentCollection, fieldName);
 
 		if (!relation) continue;
 
@@ -243,9 +243,13 @@ export async function parseFields(
 				}
 			}
 
+			const childQuery = { ...options.query };
+
 			// update query alias for children parseFields
 			const deepAlias = getDeepQuery(options.deep?.[fieldKey] || {})?.['alias'];
-			if (!isEmpty(deepAlias)) options.query.alias = deepAlias;
+
+			// reset alias to empty if none are present
+			childQuery.alias = isEmpty(deepAlias) ? {} : deepAlias;
 
 			child = {
 				type: relationType,
@@ -259,7 +263,7 @@ export async function parseFields(
 					{
 						parentCollection: relatedCollection,
 						fields: nestedFields as string[],
-						query: options.query,
+						query: childQuery,
 						deep: options.deep?.[fieldKey] || {},
 						accountability: options.accountability,
 					},

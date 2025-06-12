@@ -109,22 +109,20 @@ function onSelection(selectedIds: (number | string)[] | null) {
 <template>
 	<div class="collection-item-dropdown">
 		<v-skeleton-loader v-if="loading" type="input" />
-		<v-input v-else clickable :placeholder="t('select_an_item')" :disabled="disabled" @click="selectDrawerOpen = true">
-			<template v-if="displayItem" #input>
-				<div class="preview">
-					<render-template :collection="selectedCollection" :item="displayItem" :template="displayTemplate" />
-				</div>
-			</template>
 
-			<template #append>
-				<template v-if="displayItem">
-					<v-icon v-tooltip="t('deselect')" name="close" class="deselect" @click.stop="value = null" />
-				</template>
-				<template v-else>
-					<v-icon class="expand" name="expand_more" />
-				</template>
-			</template>
-		</v-input>
+		<v-list-item v-else :disabled block clickable @click="selectDrawerOpen = true">
+			<div v-if="displayItem" class="preview">
+				<render-template :collection="selectedCollection" :item="displayItem" :template="displayTemplate" />
+			</div>
+			<div v-else class="placeholder">{{ t('select_an_item') }}</div>
+
+			<div class="spacer" />
+
+			<div class="item-actions">
+				<v-remove v-if="displayItem" deselect @action="value = null" />
+				<v-icon v-else class="expand" name="expand_more" />
+			</div>
+		</v-list-item>
 
 		<drawer-collection
 			v-model:active="selectDrawerOpen"
@@ -138,6 +136,26 @@ function onSelection(selectedIds: (number | string)[] | null) {
 </template>
 
 <style lang="scss" scoped>
+@use '@/styles/mixins';
+
+.v-list-item {
+	&:focus-within,
+	&:focus-visible {
+		--v-list-item-border-color: var(--v-input-border-color-focus, var(--theme--form--field--input--border-color-focus));
+		--v-list-item-border-color-hover: var(--v-list-item-border-color);
+
+		box-shadow: var(--theme--form--field--input--box-shadow-focus);
+	}
+}
+
+.placeholder {
+	color: var(--v-input-placeholder-color, var(--theme--foreground-subdued));
+}
+
+.item-actions {
+	@include mixins.list-interface-item-actions;
+}
+
 .preview {
 	display: block;
 	flex-grow: 1;

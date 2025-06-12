@@ -149,6 +149,8 @@ function useDelete() {
 	return { deleting, confirmDelete, deleteAndQuit };
 
 	async function deleteAndQuit() {
+		if (deleting.value) return;
+
 		deleting.value = true;
 
 		try {
@@ -489,7 +491,7 @@ function discardAndLeave() {
 			</template>
 
 			<template #actions>
-				<v-dialog v-model="confirmDelete" @esc="confirmDelete = false">
+				<v-dialog v-model="confirmDelete" @esc="confirmDelete = false" @apply="deleteAndQuit">
 					<template #activator="{ on }">
 						<v-button
 							v-tooltip.bottom="t('delete_label')"
@@ -578,7 +580,7 @@ function discardAndLeave() {
 				</div>
 			</template>
 
-			<v-dialog v-model="confirmLeave" @esc="confirmLeave = false">
+			<v-dialog v-model="confirmLeave" @esc="confirmLeave = false" @apply="discardAndLeave">
 				<v-card>
 					<v-card-title>{{ t('unsaved_changes') }}</v-card-title>
 					<v-card-text>{{ t('unsaved_changes_copy') }}</v-card-text>
@@ -595,7 +597,7 @@ function discardAndLeave() {
 </template>
 
 <style lang="scss" scoped>
-@import '@/styles/mixins/form-grid';
+@use '@/styles/mixins';
 
 .header-icon {
 	--v-button-background-color: var(--theme--primary-background);
@@ -636,7 +638,7 @@ function discardAndLeave() {
 :deep(.layout-options) {
 	--theme--form--row-gap: 24px;
 
-	@include form-grid;
+	@include mixins.form-grid;
 }
 
 :deep(.layout-options .type-label) {

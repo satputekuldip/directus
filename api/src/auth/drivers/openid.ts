@@ -14,6 +14,7 @@ import { parseJSON } from '@directus/utils';
 import express, { Router } from 'express';
 import { flatten } from 'flat';
 import jwt from 'jsonwebtoken';
+import type { StringValue } from 'ms';
 import type { Client } from 'openid-client';
 import { errors, generators, Issuer } from 'openid-client';
 import { getAuthProvider } from '../../auth.js';
@@ -32,6 +33,7 @@ import { getConfigFromEnv } from '../../utils/get-config-from-env.js';
 import { getIPFromReq } from '../../utils/get-ip-from-req.js';
 import { getSecret } from '../../utils/get-secret.js';
 import { isLoginRedirectAllowed } from '../../utils/is-login-redirect-allowed.js';
+import { verifyJWT } from '../../utils/jwt.js';
 import { Url } from '../../utils/url.js';
 import { LocalAuthDriver } from './local.js';
 
@@ -62,11 +64,14 @@ export class OpenIDAuthDriver extends LocalAuthDriver {
 			'callback',
 		);
 
-		const clientOptionsOverrides = getConfigFromEnv(
-			`AUTH_${config['provider'].toUpperCase()}_CLIENT_`,
-			[`AUTH_${config['provider'].toUpperCase()}_CLIENT_ID`, `AUTH_${config['provider'].toUpperCase()}_CLIENT_SECRET`],
-			'underscore',
-		);
+		// extract client overrides/options excluding CLIENT_ID and CLIENT_SECRET as they are passed directly
+		const clientOptionsOverrides = getConfigFromEnv(`AUTH_${config['provider'].toUpperCase()}_CLIENT_`, {
+			omitKey: [
+				`AUTH_${config['provider'].toUpperCase()}_CLIENT_ID`,
+				`AUTH_${config['provider'].toUpperCase()}_CLIENT_SECRET`,
+			],
+			type: 'underscore',
+		});
 
 		this.redirectUrl = redirectUrl.toString();
 		this.usersService = new UsersService({ knex: this.knex, schema: this.schema });
@@ -244,9 +249,12 @@ export class OpenIDAuthDriver extends LocalAuthDriver {
 			// user that is about to be updated
 			let emitPayload: Record<string, unknown> = {
 				auth_data: userPayload.auth_data,
-				// Make sure a user's role gets updated if his openid group or role mapping changes
-				role: role,
 			};
+
+			// Make sure a user's role gets updated if their openid group or role mapping changes
+			if (this.config['roleMapping']) {
+				emitPayload['role'] = role;
+			}
 
 			if (syncUserInfo) {
 				emitPayload = {
@@ -389,7 +397,7 @@ export function createOpenIDAuthRouter(providerName: string): Router {
 			}
 
 			const token = jwt.sign({ verifier: codeVerifier, redirect, prompt }, getSecret(), {
-				expiresIn: (env[`AUTH_${providerName.toUpperCase()}_LOGIN_TIMEOUT`] ?? '5m') as string,
+				expiresIn: (env[`AUTH_${providerName.toUpperCase()}_LOGIN_TIMEOUT`] ?? '5m') as StringValue | number,
 				issuer: 'directus',
 			});
 
@@ -415,21 +423,21 @@ export function createOpenIDAuthRouter(providerName: string): Router {
 	router.get(
 		'/callback',
 		asyncHandler(async (req, res, next) => {
+			const env = useEnv();
 			const logger = useLogger();
 
 			let tokenData;
 
 			try {
-				tokenData = jwt.verify(req.cookies[`openid.${providerName}`], getSecret(), {
-					issuer: 'directus',
-				}) as {
+				tokenData = verifyJWT(req.cookies[`openid.${providerName}`], getSecret()) as {
 					verifier: string;
 					redirect?: string;
 					prompt: boolean;
 				};
 			} catch (e: any) {
 				logger.warn(e, `[OpenID] Couldn't verify OpenID cookie`);
-				throw new InvalidCredentialsError();
+				const url = new Url(env['PUBLIC_URL'] as string).addPath('admin', 'login');
+				return res.redirect(`${url.toString()}?reason=${ErrorCode.InvalidCredentials}`);
 			}
 
 			const { verifier, redirect, prompt } = tokenData;

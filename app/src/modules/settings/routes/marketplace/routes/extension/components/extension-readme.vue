@@ -14,13 +14,16 @@ const { t } = useI18n();
 </template>
 
 <style scoped lang="scss">
+@use '@/styles/mixins';
+
 .readme {
 	:deep(*) {
+		-webkit-user-select: text;
 		user-select: text;
 	}
 
 	:deep() {
-		@import '@/styles/markdown';
+		@include mixins.markdown;
 	}
 
 	:deep(* + *) {

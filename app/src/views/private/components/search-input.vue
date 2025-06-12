@@ -101,7 +101,7 @@ function activate() {
 function toggleFilter() {
 	filterActive.value = !filterActive.value;
 	active.value = true;
-	input.value?.focus();
+	if (!filterActive.value) input.value?.focus();
 }
 
 function clear() {
@@ -161,6 +161,8 @@ function emitValue() {
 				@input="emitValue"
 				@paste="emitValue"
 				@keydown.esc="disable"
+				@focusin="activate"
+				@focusout="filterActive ? undefined : disable()"
 			/>
 			<div class="spacer" />
 			<v-icon
@@ -172,13 +174,7 @@ function emitValue() {
 				@click.stop="clear"
 			/>
 			<template v-if="showFilter">
-				<v-icon
-					v-tooltip.bottom="t('filter')"
-					clickable
-					class="icon-filter"
-					name="filter_list"
-					@click.stop="toggleFilter"
-				/>
+				<v-icon v-tooltip.bottom="t('filter')" clickable class="icon-filter" name="filter_list" @click="toggleFilter" />
 
 				<transition-expand @before-enter="filterBorder = true" @after-leave="filterBorder = false">
 					<div v-show="filterActive" ref="filterElement" class="filter" :class="{ active }">
@@ -256,6 +252,10 @@ function emitValue() {
 	.icon-search,
 	.icon-filter {
 		--v-icon-color-hover: var(--theme--primary);
+
+		&:focus-visible {
+			border-radius: 50%;
+		}
 	}
 
 	.icon-search {

@@ -46,6 +46,7 @@ interface Props {
 	includeRelations?: boolean;
 	relationalFieldSelectable?: boolean;
 	rawFieldNames?: boolean;
+	variableInputEnabled: boolean | undefined;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -94,7 +95,6 @@ const filterInfo = computed<(FilterInfo | FilterInfoField)[]>({
 
 function getFieldPreview(node: Record<string, any>) {
 	const fieldKey = getField(node);
-
 	const fieldParts = fieldKey.split('.');
 
 	const fieldNames = fieldParts.map((fieldKey, index) => {
@@ -111,6 +111,11 @@ function getFieldPreview(node: Record<string, any>) {
 
 		const pathPrefix = fieldParts.slice(0, index);
 		const field = fieldsStore.getField(props.collection, [...pathPrefix, key].join('.'));
+
+		// Injected special fields, such as $version
+		if (!field && key.startsWith('$')) {
+			return t(key.replace('$', ''));
+		}
 
 		const name = (props.rawFieldNames ? field?.field : field?.name) ?? key;
 
@@ -238,7 +243,9 @@ function replaceNode(index: number, newFilter: Filter) {
 function getCompareOptions(name: string) {
 	let type: Type;
 
-	if (fieldHasFunction(name)) {
+	if (name === '$version') {
+		type = 'string';
+	} else if (fieldHasFunction(name)) {
 		const functionName = name.split('(')[0] as FieldFunction;
 		type = getOutputTypeForFunction(functionName);
 	} else {
@@ -324,7 +331,12 @@ function isExistingField(node: Record<string, any>): boolean {
 							:items="getCompareOptions((filterInfo[index] as FilterInfoField).field)"
 							@update:model-value="updateComparator(index, $event)"
 						/>
-						<input-group :field="element" :collection="collection" @update:field="replaceNode(index, $event)" />
+						<input-group
+							:field="element"
+							:collection="collection"
+							:variable-input-enabled="variableInputEnabled"
+							@update:field="replaceNode(index, $event)"
+						/>
 						<span class="delete">
 							<v-icon
 								v-tooltip="t('delete_label')"
@@ -372,6 +384,7 @@ function isExistingField(node: Record<string, any>): boolean {
 						:depth="depth + 1"
 						:inline="inline"
 						:raw-field-names="rawFieldNames"
+						:variable-input-enabled="variableInputEnabled"
 						@change="$emit('change')"
 						@remove-node="$emit('remove-node', [`${index}.${filterInfo[index].name}`, ...$event])"
 						@update:filter="replaceNode(index, { [filterInfo[index].name]: $event })"
@@ -498,13 +511,15 @@ function isExistingField(node: Record<string, any>): boolean {
 		transition: opacity var(--fast) var(--transition);
 	}
 
+	&:focus-within,
 	&:hover {
-		border-color: var(--theme--form--field--input--border-color);
-
-		.delete,
-		&:hover {
+		.delete {
 			opacity: 1;
 		}
+	}
+
+	&:hover {
+		border-color: var(--theme--form--field--input--border-color);
 	}
 
 	.drag-handle {

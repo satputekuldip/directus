@@ -4,8 +4,9 @@ import { useCollectionPermissions } from '@/composables/use-permissions';
 import { unexpectedError } from '@/utils/unexpected-error';
 import { ContentVersion } from '@directus/types';
 import { isNil } from 'lodash';
-import { ref, toRefs, unref } from 'vue';
+import { ref, toRefs, unref, watch, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
+import slugify from '@sindresorhus/slugify';
 import VersionPromoteDrawer from './version-promote-drawer.vue';
 
 interface Props {
@@ -40,10 +41,18 @@ const {
 
 const { switchDialogActive, switchTarget, switchVersion } = useSwitchDialog();
 
-const { createDialogActive, newVersionKey, newVersionName, closeCreateDialog, creating, createVersion } =
-	useCreateDialog();
+const {
+	createDialogActive,
+	newVersionKey,
+	newVersionName,
+	closeCreateDialog,
+	creating,
+	isCreateDisabled,
+	createVersion,
+} = useCreateDialog();
 
-const { renameDialogActive, openRenameDialog, closeRenameDialog, updating, renameVersion } = useRenameDialog();
+const { renameDialogActive, openRenameDialog, closeRenameDialog, updating, renameVersion, isRenameDisabled } =
+	useRenameDialog();
 
 const { deleting, deleteVersion } = useDelete();
 
@@ -76,17 +85,39 @@ function useCreateDialog() {
 	const creating = ref(false);
 	const newVersionKey = ref<string | null>(null);
 	const newVersionName = ref<string | null>(null);
+	const isCreateDisabled = computed(() => newVersionKey.value === null);
+
+	watch(
+		newVersionName,
+		(newName, oldName) => {
+			if (
+				newName === null ||
+				newVersionKey.value ===
+					slugify(oldName ?? '', {
+						separator: '-',
+					})
+			) {
+				newVersionKey.value = slugify(newName ?? '', {
+					separator: '-',
+				});
+			}
+		},
+		{ immediate: true },
+	);
 
 	return {
 		newVersionKey,
 		newVersionName,
 		createDialogActive,
 		creating,
+		isCreateDisabled,
 		createVersion,
 		closeCreateDialog,
 	};
 
 	async function createVersion() {
+		if (isCreateDisabled.value || creating.value) return;
+
 		if (!unref(primaryKey) || unref(primaryKey) === '+') return;
 
 		creating.value = true;
@@ -122,16 +153,26 @@ function useRenameDialog() {
 	const renameDialogActive = ref(false);
 	const updating = ref(false);
 
+	const isRenameDisabled = computed(
+		() =>
+			((newVersionKey.value === null || newVersionKey.value === currentVersion.value?.key) &&
+				newVersionName.value === currentVersion.value?.name) ||
+			!unref(primaryKey) ||
+			unref(primaryKey) === '+' ||
+			!newVersionKey.value,
+	);
+
 	return {
 		renameDialogActive,
 		updating,
+		isRenameDisabled,
 		renameVersion,
 		openRenameDialog,
 		closeRenameDialog,
 	};
 
 	async function renameVersion() {
-		if (!unref(primaryKey) || unref(primaryKey) === '+' || !newVersionKey.value) return;
+		if (isRenameDisabled.value || updating.value) return;
 
 		updating.value = true;
 
@@ -201,6 +242,8 @@ function useDeleteDialog() {
 	};
 
 	async function onDeleteVersion() {
+		if (deleting.value) return;
+
 		await deleteVersion();
 		deleteDialogActive.value = false;
 	}
@@ -225,11 +268,14 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 	<div class="version-menu-wrapper">
 		<v-menu class="version-menu" placement="bottom-start" show-arrow>
 			<template #activator="{ toggle }">
-				<button class="version-button" :class="{ main: currentVersion === null }" @click="toggle">
-					<span class="version-name">
-						<v-text-overflow :text="currentVersion ? getVersionDisplayName(currentVersion) : t('main_version')" />
-					</span>
-					<v-icon name="arrow_drop_down" />
+				<button class="version-button" type="button" @click="toggle">
+					<v-icon name="published_with_changes" />
+					<v-text-overflow
+						class="version-name"
+						:text="currentVersion ? getVersionDisplayName(currentVersion) : t('main_version')"
+						placement="bottom"
+					/>
+					<v-icon small name="arrow_drop_down" />
 				</button>
 			</template>
 
@@ -284,7 +330,7 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 			@promote="onPromoteComplete($event)"
 		/>
 
-		<v-dialog v-model="switchDialogActive" @esc="switchDialogActive = false">
+		<v-dialog v-model="switchDialogActive" @esc="switchDialogActive = false" @apply="switchVersion">
 			<v-card>
 				<v-card-title>{{ t('unsaved_changes') }}</v-card-title>
 				<v-card-text>
@@ -303,7 +349,7 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 			</v-card>
 		</v-dialog>
 
-		<v-dialog :model-value="createDialogActive" persistent @esc="closeCreateDialog">
+		<v-dialog :model-value="createDialogActive" persistent @esc="closeCreateDialog" @apply="createVersion">
 			<v-card>
 				<v-card-title>{{ t('create_version') }}</v-card-title>
 
@@ -311,24 +357,23 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 					<div class="grid">
 						<div class="field">
 							<v-input
-								v-model="newVersionKey"
-								class="full"
-								:placeholder="t('version_key')"
-								autofocus
-								slug
-								trim
-								:max-length="64"
-								@keyup.enter="createVersion"
-							/>
-						</div>
-						<div class="field">
-							<v-input
 								v-model="newVersionName"
 								class="full"
 								:placeholder="t('version_name')"
+								autofocus
 								trim
 								:max-length="255"
-								@keyup.enter="createVersion"
+							/>
+						</div>
+
+						<div class="field">
+							<v-input
+								v-model="newVersionKey"
+								class="full"
+								:placeholder="t('version_key')"
+								slug
+								trim
+								:max-length="64"
 							/>
 						</div>
 					</div>
@@ -336,14 +381,14 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 
 				<v-card-actions>
 					<v-button secondary @click="closeCreateDialog">{{ t('cancel') }}</v-button>
-					<v-button :disabled="newVersionKey === null" :loading="creating" @click="createVersion">
+					<v-button :disabled="isCreateDisabled" :loading="creating" @click="createVersion">
 						{{ t('save') }}
 					</v-button>
 				</v-card-actions>
 			</v-card>
 		</v-dialog>
 
-		<v-dialog :model-value="renameDialogActive" persistent @esc="closeRenameDialog">
+		<v-dialog :model-value="renameDialogActive" persistent @esc="closeRenameDialog" @apply="renameVersion">
 			<v-card>
 				<v-card-title>{{ t('rename_version') }}</v-card-title>
 
@@ -351,24 +396,22 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 					<div class="grid">
 						<div class="field">
 							<v-input
-								v-model="newVersionKey"
-								class="full"
-								:placeholder="t('version_key')"
-								autofocus
-								slug
-								trim
-								:max-length="64"
-								@keyup.enter="renameVersion"
-							/>
-						</div>
-						<div class="field">
-							<v-input
 								v-model="newVersionName"
+								autofocus
 								class="full"
 								:placeholder="t('version_name')"
 								trim
 								:max-length="255"
-								@keyup.enter="renameVersion"
+							/>
+						</div>
+						<div class="field">
+							<v-input
+								v-model="newVersionKey"
+								class="full"
+								:placeholder="t('version_key')"
+								slug
+								trim
+								:max-length="64"
 							/>
 						</div>
 					</div>
@@ -376,21 +419,19 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 
 				<v-card-actions>
 					<v-button secondary @click="closeRenameDialog">{{ t('cancel') }}</v-button>
-					<v-button
-						:disabled="
-							(newVersionKey === null || newVersionKey === currentVersion?.key) &&
-							newVersionName === currentVersion?.name
-						"
-						:loading="updating"
-						@click="renameVersion"
-					>
+					<v-button :disabled="isRenameDisabled" :loading="updating" @click="renameVersion">
 						{{ t('save') }}
 					</v-button>
 				</v-card-actions>
 			</v-card>
 		</v-dialog>
 
-		<v-dialog v-if="currentVersion !== null" v-model="deleteDialogActive" @esc="deleteDialogActive = false">
+		<v-dialog
+			v-if="currentVersion !== null"
+			v-model="deleteDialogActive"
+			@esc="deleteDialogActive = false"
+			@apply="onDeleteVersion"
+		>
 			<v-card>
 				<v-card-title>{{ t('delete_version_copy', { version: currentVersion!.name }) }}</v-card-title>
 				<v-card-actions>
@@ -405,20 +446,30 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 </template>
 
 <style scoped lang="scss">
-@import '@/styles/mixins/form-grid';
+@use '@/styles/mixins';
 
 .grid {
 	--theme--form--row-gap: 8px;
 
-	@include form-grid;
+	@include mixins.form-grid;
 }
 
 .version-menu-wrapper {
 	overflow: hidden;
+	display: flex;
+	align-items: center;
+
+	@media (min-width: 600px) {
+		&::before {
+			content: '•';
+			padding-right: 0.25rem;
+			color: var(--theme--foreground-subdued);
+		}
+	}
 }
 
 .version-menu {
-	flex-shrink: 0;
+	flex-shrink: 1;
 }
 
 .version-item {
@@ -426,38 +477,37 @@ async function onPromoteComplete(deleteOnPromote: boolean) {
 	--v-list-item-background-color-active: var(--theme--primary);
 	--v-list-item-color-active-hover: var(--white);
 	--v-list-item-background-color-active-hover: var(--theme--primary-accent);
-}
 
-.version-button {
-	display: flex;
-	align-items: center;
-	padding: 2px;
-	background-color: var(--theme--background-normal);
-	color: var(--theme--foreground);
-	border-radius: 24px;
-	width: 100%;
-
-	.version-name {
-		padding-left: 8px;
-		overflow: hidden;
-	}
-
-	&:hover {
-		background-color: var(--theme--background-accent);
-	}
-
-	&.main {
-		background-color: var(--theme--primary);
-		color: var(--white);
-
-		&:hover {
-			background-color: var(--theme--primary-accent);
-		}
+	&.active {
+		--focus-ring-color: var(--v-list-item-color-active);
+		--focus-ring-offset: var(--focus-ring-offset-inset);
 	}
 }
 
 .version-delete {
 	--v-list-item-color: var(--theme--danger);
 	--v-list-item-color-hover: var(--theme--danger);
+}
+
+.version-name {
+	margin-left: 0.15em;
+}
+
+.version-button {
+	--v-icon-size: 1rem;
+
+	color: var(--theme--foreground-subdued);
+	display: flex;
+	align-items: center;
+	pointer-events: all;
+
+	&:hover {
+		color: var(--theme--foreground);
+	}
+
+	&:focus-visible {
+		outline-offset: 0;
+		margin-right: var(--focus-ring-width);
+	}
 }
 </style>

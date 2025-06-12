@@ -1,8 +1,7 @@
 import api from '@/api';
 import { useFieldsStore } from '@/stores/fields';
-import { unexpectedError } from '@/utils/unexpected-error';
-import { Relation, DeepPartial } from '@directus/types';
-import { getRelationType } from '@directus/utils';
+import { DeepPartial, Relation } from '@directus/types';
+import { getRelations, getRelationType } from '@directus/utils';
 import { isEqual } from 'lodash';
 import { defineStore } from 'pinia';
 
@@ -27,29 +26,25 @@ export const useRelationsStore = defineStore({
 		async upsertRelation(collection: string, field: string, values: DeepPartial<Relation>) {
 			const existing = this.getRelationForField(collection, field);
 
-			try {
-				if (existing) {
-					if (isEqual(existing, values)) return;
+			if (existing) {
+				if (isEqual(existing, values)) return;
 
-					const updatedRelationResponse = await api.patch<{ data: Relation }>(
-						`/relations/${collection}/${field}`,
-						values,
-					);
+				const updatedRelationResponse = await api.patch<{ data: Relation }>(
+					`/relations/${collection}/${field}`,
+					values,
+				);
 
-					this.relations = this.relations.map((relation) => {
-						if (relation.collection === collection && relation.field === field) {
-							return updatedRelationResponse.data.data;
-						}
+				this.relations = this.relations.map((relation) => {
+					if (relation.collection === collection && relation.field === field) {
+						return updatedRelationResponse.data.data;
+					}
 
-						return relation;
-					});
-				} else {
-					const createdRelationResponse = await api.post<{ data: Relation }>(`/relations`, values);
+					return relation;
+				});
+			} else {
+				const createdRelationResponse = await api.post<{ data: Relation }>(`/relations`, values);
 
-					this.relations = [...this.relations, createdRelationResponse.data.data];
-				}
-			} catch (error) {
-				unexpectedError(error);
+				this.relations = [...this.relations, createdRelationResponse.data.data];
 			}
 		},
 		/**
@@ -61,12 +56,7 @@ export const useRelationsStore = defineStore({
 
 			if (!fieldInfo) return [];
 
-			const relations: Relation[] = this.getRelationsForCollection(collection).filter((relation: Relation) => {
-				return (
-					(relation.collection === collection && relation.field === field) ||
-					(relation.related_collection === collection && relation.meta?.one_field === field)
-				);
-			});
+			const relations = getRelations(this.getRelationsForCollection(collection), collection, field);
 
 			if (relations.length > 0) {
 				const firstRelation = relations[0] as Relation;
@@ -100,14 +90,8 @@ export const useRelationsStore = defineStore({
 
 			if (!fieldInfo) return null;
 
-			const relations: Relation[] = this.getRelationsForCollection(collection).filter((relation: Relation) => {
-				return (
-					(relation.collection === collection && relation.field === field) ||
-					(relation.related_collection === collection && relation.meta?.one_field === field)
-				);
-			});
-
-			return relations.find((relation) => relation.collection === collection && relation.field === field) || null;
+			const relations = this.getRelationsForCollection(collection);
+			return relations.find((relation) => relation.collection === collection && relation.field === field) ?? null;
 		},
 		/**
 		 * Get a list of all relation types the path is made of

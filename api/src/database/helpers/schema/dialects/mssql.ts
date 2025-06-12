@@ -1,8 +1,17 @@
 import type { Knex } from 'knex';
+import { getDefaultIndexName } from '../../../../utils/get-default-index-name.js';
 import { SchemaHelper, type SortRecord, type Sql } from '../types.js';
 import { prepQueryParams } from '../utils/prep-query-params.js';
 
 export class SchemaHelperMSSQL extends SchemaHelper {
+	override generateIndexName(
+		type: 'unique' | 'foreign' | 'index',
+		collection: string,
+		fields: string | string[],
+	): string {
+		return getDefaultIndexName(type, collection, fields, { maxLength: 128 });
+	}
+
 	override applyLimit(rootQuery: Knex.QueryBuilder, limit: number): void {
 		// The ORDER BY clause is invalid in views, inline functions, derived tables, subqueries,
 		// and common table expressions, unless TOP, OFFSET or FOR XML is also specified.
@@ -60,5 +69,13 @@ export class SchemaHelperMSSQL extends SchemaHelper {
 		if (sortRecords.length > 0) {
 			groupByFields.push(...sortRecords.map(({ column }) => column));
 		}
+	}
+
+	override getColumnNameMaxLength(): number {
+		return 128;
+	}
+
+	override getTableNameMaxLength(): number {
+		return 128;
 	}
 }

@@ -5,6 +5,7 @@ import { useTranslationsStore } from '@/stores/translations';
 import { fetchAll } from '@/utils/fetch-all';
 import { unexpectedError } from '@/utils/unexpected-error';
 import DrawerItem from '@/views/private/components/drawer-item.vue';
+import { snakeCase } from 'lodash';
 import { computed, ref, unref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import CustomTranslationsTooltip from './custom-translations-tooltip.vue';
@@ -124,6 +125,21 @@ function openNewCustomTranslationDrawer() {
 	menuEl.value.deactivate();
 	isCustomTranslationDrawerOpen.value = true;
 }
+
+const newTranslationDefaults = computed(() => {
+	const defaults = {
+		language: getCurrentLanguage(),
+	};
+
+	if (localValue.value && !localValue.value.startsWith(translationPrefix)) {
+		Object.assign(defaults, {
+			key: snakeCase(localValue.value),
+			value: localValue.value,
+		});
+	}
+
+	return defaults;
+});
 </script>
 
 <template>
@@ -143,7 +159,9 @@ function openNewCustomTranslationDrawer() {
 					@keydown.enter="checkKeyValidity"
 				>
 					<template v-if="hasValidKey" #input>
-						<button :disabled="disabled" @click.stop="setValue(null)">{{ value && getKeyWithoutPrefix(value) }}</button>
+						<button class="selected-translation" :disabled="disabled" @click.stop="setValue(null)">
+							{{ value && getKeyWithoutPrefix(value) }}
+						</button>
 					</template>
 					<template #append>
 						<v-icon
@@ -151,7 +169,6 @@ function openNewCustomTranslationDrawer() {
 							class="translate-icon"
 							:class="{ active }"
 							clickable
-							:tabindex="-1"
 							:disabled="disabled"
 							@click="toggle"
 						/>
@@ -206,7 +223,7 @@ function openNewCustomTranslationDrawer() {
 			v-model:active="isCustomTranslationDrawerOpen"
 			collection="directus_translations"
 			primary-key="+"
-			:edits="{ language: getCurrentLanguage() }"
+			:edits="newTranslationDefaults"
 			@input="create"
 		/>
 	</div>
@@ -214,7 +231,7 @@ function openNewCustomTranslationDrawer() {
 
 <style lang="scss" scoped>
 .translation-input {
-	:deep(button) {
+	.selected-translation {
 		margin-right: auto;
 		padding: 2px 8px 0;
 		color: var(--theme--primary);
@@ -222,11 +239,13 @@ function openNewCustomTranslationDrawer() {
 		border-radius: var(--theme--border-radius);
 		transition: var(--fast) var(--transition);
 		transition-property: background-color, color;
+		-webkit-user-select: none;
 		user-select: none;
 		font-family: var(--theme--fonts--monospace--font-family);
+		overflow-x: hidden;
 	}
 
-	:deep(button:not(:disabled):hover) {
+	.selected-translation:not(:disabled):hover {
 		color: var(--white);
 		background-color: var(--theme--danger);
 	}
@@ -260,6 +279,8 @@ function openNewCustomTranslationDrawer() {
 		opacity: 0;
 	}
 
+	.info :deep(.icon:focus-visible),
+	&:focus-visible .info :deep(.icon),
 	&:hover .info :deep(.icon) {
 		opacity: 1;
 	}
@@ -276,12 +297,15 @@ function openNewCustomTranslationDrawer() {
 		--v-list-item-background-color-active: var(--theme--primary);
 		--v-list-item-color-hover: var(--foreground-inverted);
 		--v-list-item-background-color-hover: var(--theme--primary);
+		--focus-ring-color: var(--v-list-item-color-active);
+		--focus-ring-offset: var(--focus-ring-offset-inset);
 
 		background-color: var(--theme--primary);
 		color: var(--foreground-inverted);
 
 		.v-list-item-icon {
 			--v-icon-color: var(--foreground-inverted);
+			--focus-ring-offset: var(--focus-ring-offset-invert);
 		}
 
 		.info :deep(.icon) {

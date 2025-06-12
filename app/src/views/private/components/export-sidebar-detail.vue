@@ -244,6 +244,10 @@ function clearFileInput() {
 	file.value = null;
 }
 
+function openFileBrowser() {
+	fileInput.value?.click();
+}
+
 function importData() {
 	uploadFile(file.value!);
 }
@@ -333,6 +337,8 @@ function exportDataLocal() {
 }
 
 async function exportDataFiles() {
+	if (exporting.value) return;
+
 	exporting.value = true;
 
 	try {
@@ -377,14 +383,16 @@ async function exportDataFiles() {
 					</div>
 					<template v-else>
 						<p class="type-label">{{ t('label_import') }}</p>
-						<v-input clickable>
-							<template #prepend>
+
+						<v-list-item block clickable @click="openFileBrowser">
+							<v-list-item-icon>
 								<div class="preview" :class="{ 'has-file': file }">
 									<span v-if="fileExtension" class="extension">{{ fileExtension }}</span>
 									<v-icon v-else name="folder_open" />
 								</div>
-							</template>
-							<template #input>
+							</v-list-item-icon>
+
+							<v-list-item-content>
 								<input
 									id="import-file"
 									ref="fileInput"
@@ -394,17 +402,18 @@ async function exportDataFiles() {
 									@change="onChange"
 								/>
 								<label v-tooltip="file && file.name" for="import-file" class="import-file-label"></label>
+
 								<span class="import-file-text" :class="{ 'no-file': !file }">
 									{{ file ? file.name : t('import_data_input_placeholder') }}
 								</span>
-							</template>
-							<template #append>
-								<template v-if="file">
-									<v-icon v-tooltip="t('deselect')" class="deselect" name="close" @click.stop="clearFileInput" />
-								</template>
+							</v-list-item-content>
+
+							<div class="item-actions">
+								<v-remove v-if="file" deselect @action="clearFileInput" />
+
 								<v-icon v-else name="attach_file" />
-							</template>
-						</v-input>
+							</div>
+						</v-list-item>
 					</template>
 				</div>
 
@@ -440,8 +449,8 @@ async function exportDataFiles() {
 			:title="t('export_items')"
 			icon="import_export"
 			persistent
-			@esc="exportDialogActive = false"
 			@cancel="exportDialogActive = false"
+			@apply="startExport"
 		>
 			<template #actions>
 				<v-button
@@ -595,11 +604,26 @@ async function exportDataFiles() {
 </template>
 
 <style lang="scss" scoped>
-@import '@/styles/mixins/form-grid';
+@use '@/styles/mixins';
+
+.v-list-item {
+	&:focus-within,
+	&:focus-visible {
+		--v-list-item-border-color: var(--v-input-border-color-focus, var(--theme--form--field--input--border-color-focus));
+		--v-list-item-border-color-hover: var(--v-list-item-border-color);
+
+		offset: 0;
+		box-shadow: var(--theme--form--field--input--box-shadow-focus);
+	}
+}
+
+.item-actions {
+	@include mixins.list-interface-item-actions;
+}
 
 .fields,
 .export-fields {
-	@include form-grid;
+	@include mixins.form-grid;
 
 	.v-divider {
 		grid-column: 1 / span 2;

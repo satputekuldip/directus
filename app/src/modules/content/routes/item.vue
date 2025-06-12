@@ -11,6 +11,7 @@ import { renderStringTemplate } from '@/utils/render-string-template';
 import { translateShortcut } from '@/utils/translate-shortcut';
 import CommentsSidebarDetail from '@/views/private/components/comments-sidebar-detail.vue';
 import FlowSidebarDetail from '@/views/private/components/flow-sidebar-detail.vue';
+import LivePreview from '@/views/private/components/live-preview.vue';
 import RevisionsDrawerDetail from '@/views/private/components/revisions-drawer-detail.vue';
 import SaveOptions from '@/views/private/components/save-options.vue';
 import SharesSidebarDetail from '@/views/private/components/shares-sidebar-detail.vue';
@@ -20,7 +21,6 @@ import { useHead } from '@unhead/vue';
 import { computed, onBeforeUnmount, ref, toRefs, unref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
-import LivePreview from '../components/live-preview.vue';
 import ContentNavigation from '../components/navigation.vue';
 import VersionMenu from '../components/version-menu.vue';
 import ContentNotFound from './not-found.vue';
@@ -60,6 +60,7 @@ const {
 	deleteVersion,
 	saveVersionLoading,
 	saveVersion,
+	validationErrors: versionValidationErrors,
 } = useVersions(collection, isSingleton, primaryKey);
 
 const {
@@ -79,8 +80,13 @@ const {
 	isArchived,
 	saveAsCopy,
 	refresh,
-	validationErrors,
+	validationErrors: itemValidationErrors,
 } = useItem(collection, primaryKey, query);
+
+const validationErrors = computed(() => {
+	if (currentVersion.value === null) return itemValidationErrors.value;
+	return versionValidationErrors.value;
+});
 
 const {
 	collectionPermissions: { createAllowed, revisionsAllowed },
@@ -148,6 +154,16 @@ useShortcut(
 			saveAndAddNew();
 		} else {
 			saveVersionAction('quit');
+		}
+	},
+	form,
+);
+
+useShortcut(
+	'meta+alt+s',
+	() => {
+		if (unref(currentVersion) !== null) {
+			saveVersionAction('main');
 		}
 	},
 	form,
@@ -340,32 +356,16 @@ async function saveVersionAction(action: 'main' | 'stay' | 'quit') {
 	if (isSavable.value === false) return;
 
 	try {
-		await saveVersion(edits);
+		await saveVersion(edits, ref(item.value ?? {}));
 		edits.value = {};
 
-		switch (action) {
-			case 'main':
-				currentVersion.value = null;
-				break;
-			case 'stay':
-				revisionsDrawerDetailRef.value?.refresh?.();
-				refresh();
-				break;
-			case 'quit':
-				if (!props.singleton) router.push(`/content/${props.collection}`);
-				break;
+		if (action === 'main') {
+			currentVersion.value = null;
+		} else if (action === 'stay') {
+			revisionsDrawerDetailRef.value?.refresh?.();
+		} else if (action === 'quit') {
+			if (!props.singleton) router.push(`/content/${props.collection}`);
 		}
-	} catch {
-		// Save version shows unexpected error dialog
-	}
-}
-
-async function saveAndQuit() {
-	if (isSavable.value === false) return;
-
-	try {
-		await save();
-		if (props.singleton === false) router.push(getCollectionRoute(props.collection));
 	} catch {
 		// Save shows unexpected error dialog
 	}
@@ -417,7 +417,20 @@ async function saveAsCopyAndNavigate() {
 	}
 }
 
+async function saveAndQuit() {
+	if (isSavable.value === false) return;
+
+	try {
+		await save();
+		if (props.singleton === false) router.push(getCollectionRoute(props.collection));
+	} catch {
+		// Save shows unexpected error dialog
+	}
+}
+
 async function deleteAndQuit() {
+	if (deleting.value) return;
+
 	try {
 		await remove();
 		edits.value = {};
@@ -430,6 +443,8 @@ async function deleteAndQuit() {
 }
 
 async function toggleArchive() {
+	if (archiving.value) return;
+
 	try {
 		await archive();
 
@@ -461,6 +476,15 @@ function revert(values: Record<string, any>) {
 		...values,
 	};
 }
+
+const shouldShowVersioning = computed(
+	() =>
+		collectionInfo.value?.meta?.versioning &&
+		!isNew.value &&
+		internalPrimaryKey.value !== '+' &&
+		readVersionsAllowed.value &&
+		!versionsLoading.value,
+);
 </script>
 
 <template>
@@ -468,7 +492,13 @@ function revert(values: Record<string, any>) {
 		v-if="error || !collectionInfo || (collectionInfo?.meta?.singleton === true && primaryKey !== null)"
 	/>
 
-	<private-view v-else v-model:split-view="splitView" :split-view-min-width="310" :title="title">
+	<private-view
+		v-else
+		v-model:split-view="splitView"
+		:class="{ 'has-content-versioning': shouldShowVersioning }"
+		:split-view-min-width="310"
+		:title="title"
+	>
 		<template v-if="collectionInfo.meta && collectionInfo.meta.singleton === true" #title>
 			<h1 class="type-title">
 				{{ collectionInfo.name }}
@@ -514,35 +544,31 @@ function revert(values: Record<string, any>) {
 		</template>
 
 		<template #headline>
-			<v-breadcrumb
-				v-if="collectionInfo.meta && collectionInfo.meta.singleton === true"
-				:items="[{ name: t('content'), to: '/content' }]"
-			/>
-			<v-breadcrumb v-else :items="breadcrumb" />
+			<div class="headline-wrapper" :class="{ 'has-version-menu': shouldShowVersioning }">
+				<v-breadcrumb
+					v-if="collectionInfo.meta && collectionInfo.meta.singleton === true"
+					:items="[{ name: t('content'), to: '/content' }]"
+					class="headline-breadcrumb"
+				/>
+				<v-breadcrumb v-else :items="breadcrumb" class="headline-breadcrumb" />
+
+				<version-menu
+					v-if="shouldShowVersioning"
+					:collection="collection"
+					:primary-key="internalPrimaryKey!"
+					:update-allowed="updateAllowed"
+					:has-edits="hasEdits"
+					:current-version="currentVersion"
+					:versions="versions"
+					@add="addVersion"
+					@update="updateVersion"
+					@delete="deleteVersion"
+					@switch="currentVersion = $event"
+				/>
+			</div>
 		</template>
 
-		<template #title-outer:append>
-			<version-menu
-				v-if="
-					collectionInfo.meta &&
-					collectionInfo.meta.versioning &&
-					!isNew &&
-					internalPrimaryKey !== '+' &&
-					readVersionsAllowed &&
-					!versionsLoading
-				"
-				:collection="collection"
-				:primary-key="internalPrimaryKey"
-				:update-allowed="updateAllowed"
-				:has-edits="hasEdits"
-				:current-version="currentVersion"
-				:versions="versions"
-				@add="addVersion"
-				@update="updateVersion"
-				@delete="deleteVersion"
-				@switch="currentVersion = $event"
-			/>
-		</template>
+		<template #title-outer:append></template>
 
 		<template #actions>
 			<v-button
@@ -562,6 +588,7 @@ function revert(values: Record<string, any>) {
 				v-model="confirmDelete"
 				:disabled="deleteAllowed === false"
 				@esc="confirmDelete = false"
+				@apply="deleteAndQuit"
 			>
 				<template #activator="{ on }">
 					<v-button
@@ -597,6 +624,7 @@ function revert(values: Record<string, any>) {
 				v-model="confirmArchive"
 				:disabled="archiveAllowed === false"
 				@esc="confirmArchive = false"
+				@apply="toggleArchive"
 			>
 				<template #activator="{ on }">
 					<v-button
@@ -655,7 +683,7 @@ function revert(values: Record<string, any>) {
 				:tooltip="t('save_version')"
 				:loading="saveVersionLoading"
 				:disabled="!isSavable"
-				@click="saveVersionAction('main')"
+				@click="saveVersionAction('stay')"
 			>
 				<v-icon name="beenhere" />
 
@@ -666,10 +694,10 @@ function revert(values: Record<string, any>) {
 						</template>
 
 						<v-list>
-							<v-list-item clickable @click="saveVersionAction('stay')">
-								<v-list-item-icon><v-icon name="beenhere" /></v-list-item-icon>
-								<v-list-item-content>{{ t('save_and_stay') }}</v-list-item-content>
-								<v-list-item-hint>{{ translateShortcut(['meta', 's']) }}</v-list-item-hint>
+							<v-list-item clickable @click="saveVersionAction('main')">
+								<v-list-item-icon><v-icon name="check" /></v-list-item-icon>
+								<v-list-item-content>{{ t('save_and_return_to_main') }}</v-list-item-content>
+								<v-list-item-hint>{{ translateShortcut(['meta', 'alt', 's']) }}</v-list-item-hint>
 							</v-list-item>
 							<v-list-item clickable @click="saveVersionAction('quit')">
 								<v-list-item-icon><v-icon name="done_all" /></v-list-item-icon>
@@ -700,9 +728,10 @@ function revert(values: Record<string, any>) {
 			:fields="fields"
 			:primary-key="internalPrimaryKey"
 			:validation-errors="validationErrors"
+			:version="currentVersion"
 		/>
 
-		<v-dialog v-model="confirmLeave" @esc="confirmLeave = false">
+		<v-dialog v-model="confirmLeave" @esc="confirmLeave = false" @apply="discardAndLeave">
 			<v-card>
 				<v-card-title>{{ t('unsaved_changes') }}</v-card-title>
 				<v-card-text>{{ t('unsaved_changes_copy') }}</v-card-text>
@@ -716,7 +745,7 @@ function revert(values: Record<string, any>) {
 		</v-dialog>
 
 		<template #splitView>
-			<LivePreview v-if="previewUrl" :url="previewUrl" @new-window="livePreviewMode = 'popup'" />
+			<live-preview v-if="previewUrl" :url="previewUrl" @new-window="livePreviewMode = 'popup'" />
 		</template>
 
 		<template #sidebar>
@@ -783,11 +812,55 @@ function revert(values: Record<string, any>) {
 	width: 260px;
 }
 
-:deep(.version-more-options.v-icon) {
+.version-more-options.v-icon {
+	--focus-ring-offset: var(--focus-ring-offset-invert);
+
 	color: var(--theme--foreground-subdued);
 
 	&:hover {
 		color: var(--theme--foreground);
+	}
+}
+
+.has-content-versioning {
+	:deep(.header-bar .title-container) {
+		flex-direction: column;
+		justify-content: center;
+		gap: 0;
+		align-items: start;
+
+		.headline {
+			opacity: 1;
+			top: 3px;
+		}
+
+		.title {
+			top: 4px;
+		}
+
+		@media (min-width: 600px) {
+			opacity: 1;
+		}
+	}
+
+	.headline-wrapper {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	:deep(.header-bar.collapsed.shadow .title-container .headline) {
+		opacity: 1;
+		pointer-events: auto;
+	}
+	:deep(.header-bar.small.shadow .title-container .headline) {
+		opacity: 1;
+	}
+}
+
+.headline-wrapper.has-version-menu .headline-breadcrumb {
+	@media (max-width: 600px) {
+		display: none;
 	}
 }
 </style>

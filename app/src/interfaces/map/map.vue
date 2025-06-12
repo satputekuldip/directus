@@ -6,9 +6,7 @@ import { ButtonControl } from '@/utils/geometry/controls';
 import { useAppStore } from '@directus/stores';
 import { Field, GeoJSONParser, GeoJSONSerializer, GeometryType, MultiGeometry, SimpleGeometry } from '@directus/types';
 import MapboxDraw from '@mapbox/mapbox-gl-draw';
-import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
 import MapboxGeocoder from '@mapbox/mapbox-gl-geocoder';
-import '@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css';
 import { Geometry } from 'geojson';
 import { debounce, isEqual, snakeCase } from 'lodash';
 import maplibre, {
@@ -21,7 +19,6 @@ import maplibre, {
 	Map,
 	NavigationControl,
 } from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Ref } from 'vue';
 import { computed, onMounted, onUnmounted, ref, toRefs, watch } from 'vue';
 import { TranslateResult, useI18n } from 'vue-i18n';
@@ -29,6 +26,10 @@ import { getMapStyle } from './style';
 
 // @ts-ignore
 import StaticMode from '@mapbox/mapbox-gl-draw-static-mode';
+
+import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
+import '@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 const activeLayers = [
 	'directus-point',
@@ -471,6 +472,16 @@ function handleKeyDown(event: any) {
 	overflow: hidden;
 	border: var(--theme--border-width) solid var(--theme--form--field--input--border-color);
 	border-radius: var(--theme--border-radius);
+
+	&:focus-within {
+		border-color: var(--v-input-border-color-focus, var(--theme--form--field--input--border-color-focus));
+		box-shadow: var(--theme--form--field--input--box-shadow-focus);
+	}
+
+	:deep(button) {
+		--focus-ring-offset: var(--focus-ring-offset-invert);
+		--focus-ring-radius: 0;
+	}
 
 	.map {
 		position: relative;

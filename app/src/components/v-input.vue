@@ -55,6 +55,10 @@ interface Props {
 	autocomplete?: string;
 	/** Makes the input smaller */
 	small?: boolean;
+	/** If the input should be an integer */
+	integer?: boolean;
+	/** If the input should be a float */
+	float?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -81,14 +85,17 @@ const props = withDefaults(defineProps<Props>(), {
 	small: false,
 });
 
-const emit = defineEmits(['click', 'keydown', 'update:modelValue', 'focus']);
+const emit = defineEmits(['click', 'keydown', 'update:modelValue', 'focus', 'keydown:space', 'keydown:enter']);
 
 const attrs = useAttrs();
 
 const input = ref<HTMLInputElement | null>(null);
 
 const listeners = computed(() => ({
-	input: emitValue,
+	input: (e: InputEvent) => {
+		onInput(e);
+		emitValue(e);
+	},
 	keydown: processValue,
 	blur: (e: Event) => {
 		trimIfEnabled();
@@ -117,13 +124,51 @@ const isStepDownAllowed = computed(() => {
 	return props.disabled === false && (props.min === undefined || parseInt(String(props.modelValue), 10) > props.min);
 });
 
+function onInput(event: InputEvent) {
+	const target = event.target as HTMLInputElement;
+
+	// If we enter an invalid number into an input of type number, the event.target.value will be empty, which makes it hard to sanitize here, so we'll replace it with the last (valid) modelValue.
+	if (target.validity.badInput) {
+		target.value = String(props.modelValue);
+		return;
+	}
+
+	const regexValidInteger = /^-?\d*$/;
+
+	if (props.integer && !regexValidInteger.test(target.value)) {
+		const invalidCharsRegex = /(?!^)-|[^0-9-]/g;
+		target.value = target.value.replace(invalidCharsRegex, '');
+		return;
+	}
+
+	const regexValidFloat = /^-?(\d*((,|\.)\d+)?)$/;
+
+	if (props.float && !regexValidFloat.test(target.value)) {
+		const invalidCharsRegex = /(?!^)-|[^0-9-.,]/g;
+		const duplicatePointRegex = /(.*[.,].*)[.,]/g;
+		target.value = target.value.replace(invalidCharsRegex, '').replace(duplicatePointRegex, '$1');
+		event.preventDefault();
+		return;
+	}
+}
+
 function processValue(event: KeyboardEvent) {
 	// `event.key` can be `undefined` with Chrome's autofill feature
 	const key = keyMap[event.key] ?? event.key?.toLowerCase();
+	const shortcutKey = event.ctrlKey || event.shiftKey || event.altKey || event.metaKey;
 
 	if (!key) return;
 
 	const value = (event.target as HTMLInputElement).value;
+
+	const addsChar = !shortcutKey && key.length === 1;
+	const isInvalidInteger = props.integer && !/[\d-]/.test(key);
+	const isInvalidFloat = props.float && !/[\d-.,]/.test(key);
+
+	if (addsChar && (isInvalidInteger || isInvalidFloat)) {
+		event.preventDefault();
+		return;
+	}
 
 	if (props.slug === true) {
 		const slugSafeCharacters = 'abcdefghijklmnopqrstuvwxyz0123456789-_~ '.split('');
@@ -161,7 +206,13 @@ function processValue(event: KeyboardEvent) {
 
 function trimIfEnabled() {
 	if (props.modelValue && props.trim && ['string', 'text'].includes(props.type)) {
-		emit('update:modelValue', String(props.modelValue).trim());
+		const trimmedValue = String(props.modelValue).trim();
+
+		if (props.nullable === true && trimmedValue === '') {
+			emit('update:modelValue', null);
+		} else {
+			emit('update:modelValue', trimmedValue);
+		}
 	}
 }
 
@@ -175,6 +226,11 @@ function emitValue(event: InputEvent) {
 
 	if (props.type === 'number') {
 		const parsedNumber = Number(value);
+
+		if (props.integer === true && !Number.isInteger(parsedNumber) && Number.isNaN(parsedNumber) === false) {
+			emit('update:modelValue', Math.floor(parsedNumber));
+			return;
+		}
 
 		// Ignore if numeric value remains unchanged
 		if (props.modelValue !== parsedNumber) {
@@ -249,6 +305,8 @@ function stepDown() {
 					:disabled="disabled"
 					:value="modelValue === undefined || modelValue === null ? '' : String(modelValue)"
 					v-on="listeners"
+					@keydown.space="$emit('keydown:space', $event)"
+					@keydown.enter="$emit('keydown:enter', $event)"
 				/>
 			</slot>
 			<span v-if="suffix" class="suffix">{{ suffix }}</span>
@@ -456,6 +514,12 @@ function stepDown() {
 
 		input {
 			pointer-events: none;
+			-webkit-user-select: none;
+			user-select: none;
+
+			&::selection {
+				background-color: transparent;
+			}
 
 			.prefix,
 			.suffix {

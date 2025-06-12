@@ -153,7 +153,7 @@ delete_folder: 删除文件夹
 prefix: 前缀
 suffix: 后缀
 keep: 保持
-version: 版本
+version: 版本号
 version_key: 版本密钥
 version_name: 版本名称
 main_version: 主要
@@ -260,7 +260,7 @@ field_permissions: 字段权限
 field_validation: 字段验证
 field_presets: 字段预设
 permissions_for_role: '{role} 角色能够 {action}。'
-permissions_for_policy: '{policy} 角色能够 {action}。'
+permissions_for_policy: '{policy} 策略可以 {action} 的项目。'
 fields_for_role: '{role} 角色能够 {action} 字段。'
 fields_for_policy: '{policy} 策略可以 {action} 的字段。'
 validation_for_role: '{role} 角色必须遵守字段的 {action} 规则。'
@@ -300,9 +300,9 @@ validation: 验证
 sum: 求和
 sum_distinct: Sum Distinct
 avg: 平均值
-avg_distinct: Average Distinct
-count: Count
-count_distinct: Count Distinct
+avg_distinct: 唯一均值
+count: 总计
+count_distinct: 唯一计数
 min: 最小值
 max: 最大值
 exposure: 过期
@@ -316,7 +316,6 @@ field_in_collection: '{field} ({collection})'
 reset_page_preferences: 重置页面首选项
 hidden_field: 隐藏字段
 hidden_on_detail: 在详情中隐藏
-disabled_editing_value: 禁用编辑
 key: 关键字
 alias: 别名
 bigInteger: Big Integer
@@ -329,14 +328,14 @@ dateTime: DateTime
 precision: 精度
 decimal: Decimal
 float: Float
-integer: 整数数字
+integer: Integer
 json: JSON
 xml: XML
 yaml: YAML
-string: 字符串
+string: String
 text: 文本
 time: 时间
-timestamp: 时间戳
+timestamp: Timestamp
 uuid: UUID
 hash: Hash
 geometry:
@@ -510,7 +509,7 @@ functions:
   hour: 时
   minute: 分
   second: 秒
-  count: Count
+  count: 总计
 date-fns_date: PPP
 date-fns_time: 'h:mm:ss a'
 date-fns_time_no_seconds: 'h:mm a'
@@ -518,6 +517,7 @@ date-fns_time_24hour: 'HH:mm:ss'
 date-fns_time_no_seconds_24hour: 'HH:mm'
 date-fns_date_short: 'MMM d, u'
 date-fns_time_short: 'h:mma'
+date-fns_time_short_seconds: 'h:mm:ssa'
 date-fns_date_short_no_year: MMM d
 minutes: 分
 hours: 时
@@ -602,6 +602,7 @@ manual_string: 手动输入字符串
 save_and_create_new: 保存并创建新的
 save_and_stay: 保存并继续
 save_and_quit: 保存并退出
+save_and_return_to_main: 保存并返回到主页面
 save_as_copy: 另存为
 add_existing: 添加现有
 creating_items: 创建条目
@@ -884,7 +885,7 @@ columns: 列
 collection_setup: 模型设置
 optional_system_fields: 可选字段
 value_unique: 值必须唯一
-value_index: 字段已建立索引
+value_index: 字段已索引
 all_activity: 所有活动的
 create_item: 创建条目
 display_template: 显示模板
@@ -940,7 +941,7 @@ run_flow_on_current: 在当前项目上运行流程
 run_flow_on_current_edited_confirm: 此流程可能会更新此项，您确定要执行它吗？
 run_flow_on_selected: 先选择一个或多个项目 | 在 1 个选定项目 上运行 | 在 {n} 个选定项目 上运行
 run_flow: 运行流程
-run_flow_success: 流程 "{flow}" 运行成功
+trigger_flow_success: 流程 "{flow}" 已成功触发
 field_name_placeholder: 输入字段名称...
 field_key_placeholder: 请输入字段键...
 trigger: 触发器
@@ -977,6 +978,13 @@ operation_key: 用于引用的标识...
 operation_key_unique_error: 操作的键值(keys)在同一流程中必须是唯一的
 operation_handle_resolve: '成功：点击添加或拖动布局'
 operation_handle_reject: '失败：点击添加或拖动布局'
+visual_editor: 可视化编辑器
+toggle_navigation: 切换导航
+toggle_editable_elements: 切换可编辑元素
+no_url: 未提供 URL
+no_url_copy: 请在设置中添加一个URL。
+invalid_url: 无效的URL
+invalid_url_copy: 指定的 URL 与设置中指定的任何 URL 都不匹配。
 insights: 洞察分析
 dashboard: 控制面板
 panel: 面板
@@ -1226,6 +1234,7 @@ directus_collection:
   directus_access: 策略附件
   directus_activity: 所有事件操作日志
   directus_collections: 其他集合配置和元数据
+  directus_comments: 评论此条目
   directus_dashboards: Insights模块中的仪表板
   directus_fields: 其他字段配置和元数据
   directus_files: 文件资源元数据
@@ -1393,6 +1402,7 @@ fields:
     public_registration_email_filter_note: 只有符合此过滤规则的电子邮件地址才能注册。
     public_registration_verify_email: 验证电子邮件
     public_registration_verify_email_note: 向注册用户发送一封电子邮件，请他们在登录前点击验证链接。
+    visual_editor_urls: 可视化编辑器网址
   directus_shares:
     name: 名称
     role: 角色
@@ -1608,7 +1618,7 @@ continue_as: >-
 editing_role: '{role} 角色'
 editing_policy: '{policy} 策略'
 no_permissions: 没有权限
-permission_add_collection: 添加收藏
+permission_add_collection: 添加模型
 creating_webhook: 正在创建 Webhook
 default_label: 默认值
 delete_label: 删除
@@ -1831,8 +1841,8 @@ interfaces:
   input-hash:
     hash: Hash
     description: 输入一个hash值
-    masked: Masked
-    masked_label: Hide the true values
+    masked: 隐藏
+    masked_label: 隐藏真实值
   select-icon:
     icon: 图标
     description: 从下拉列表中选择一个图标
@@ -1953,9 +1963,9 @@ interfaces:
   input:
     input: Input
     description: 手动输入一个值
-    trim: Trim
+    trim: 裁剪
     trim_label: 修剪开始和结束
-    mask: Masked
+    mask: 隐藏
     mask_label: 隐藏真实值
     clear: 已清除的值
     clear_label: 保存为空字符串
@@ -2142,7 +2152,7 @@ displays:
     icon: 图标
     border: 边框
     border_label: 显示边框
-    mask: Masked
+    mask: 隐藏
     mask_label: 隐藏真实值
     text: 文本
     text_placeholder: 可选值覆盖...
@@ -2281,6 +2291,8 @@ show_legend: 显示图例
 right: 右
 left: 左
 donut: 圆环图
+continuous: 继续
+gap: 间隙
 panels:
   metric:
     name: 公制
@@ -2296,6 +2308,7 @@ panels:
     value_field: 值字段
     fill_type: 填充类型
     curve_type: 曲线类型
+    missing_data: 缺失数据
   label:
     name: 标签
     description: 显示一些文本
@@ -2346,6 +2359,7 @@ triggers:
     filter: '过滤器(阻塞)'
   webhook:
     name: 互联网钩子
+    error_on_reject: 拒绝时出错
     description: 由传入的 HTTP 请求触发
     method: 方法
     async: 异步的
@@ -2424,10 +2438,16 @@ operations:
     name: 发送电子邮件
     description: 向一个或多个用户发送电子邮件
     to: 至
-    to_placeholder: 添加电子邮件地址并按回车...
+    to_placeholder: 添加电子邮件地址并按回车……
     body: 正文内容
     template: 模板
     data: 数据
+    cc: 抄送
+    cc_placeholder: 添加电子邮件地址并按回车……
+    bcc: 密送
+    bcc_placeholder: 添加密送电子邮件地址并按回车……
+    reply_to: 回复给
+    reply_to_placeholder: 添加回复邮件地址并按回车键……
   notification:
     name: 发送通知
     description: 向一个或多个用户发送应用内通知

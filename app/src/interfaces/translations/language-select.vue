@@ -6,6 +6,7 @@ const props = withDefaults(
 		modelValue?: string;
 		items?: Record<string, any>[];
 		secondary?: boolean;
+		danger?: boolean;
 	}>(),
 	{
 		items: () => [],
@@ -21,18 +22,23 @@ const displayValue = computed(() => {
 </script>
 
 <template>
-	<v-menu attached class="language-select" :class="{ secondary }">
+	<v-menu attached class="language-select" :class="{ secondary, danger }">
 		<template #activator="{ toggle, active }">
-			<button class="toggle" @click="toggle">
-				<v-icon class="translate" name="translate" />
+			<button class="toggle" type="button" @click="toggle">
+				<slot name="prepend" />
 				<span class="display-value">{{ displayValue }}</span>
+				<span class="controls"><slot name="controls" :active :toggle /></span>
 				<v-icon class="expand" name="expand_more" :class="{ active }" />
-				<span class="append-slot"><slot name="append" :active="active" :toggle="toggle" /></span>
 			</button>
 		</template>
 
 		<v-list v-if="items">
-			<v-list-item v-for="(item, index) in items" :key="index" @click="$emit('update:modelValue', item.value)">
+			<v-list-item
+				v-for="(item, index) in items"
+				:key="index"
+				clickable
+				@click="$emit('update:modelValue', item.value)"
+			>
 				<div class="start">
 					<div class="dot" :class="{ show: item.edited }"></div>
 					{{ item.text }}
@@ -79,8 +85,24 @@ const displayValue = computed(() => {
 		margin-left: 8px;
 	}
 
-	.append-slot:not(:empty) {
+	.controls > * + * {
 		margin-left: 8px;
+	}
+
+	.secondary & {
+		--v-icon-color: var(--theme--secondary);
+		--v-icon-color-hover: var(--secondary-150);
+
+		color: var(--theme--secondary);
+		background-color: var(--secondary-alt);
+	}
+
+	.danger & {
+		--v-icon-color: var(--theme--danger);
+		--v-icon-color-hover: var(--theme--danger-accent);
+
+		color: var(--theme--danger);
+		background-color: var(--theme--danger-background);
 	}
 }
 
@@ -92,16 +114,6 @@ const displayValue = computed(() => {
 
 .v-icon {
 	margin-left: 6px;
-}
-
-.secondary {
-	.toggle {
-		--v-icon-color: var(--theme--secondary);
-		--v-icon-color-hover: var(--secondary-150);
-
-		color: var(--theme--secondary);
-		background-color: var(--secondary-alt);
-	}
 }
 
 .v-list {

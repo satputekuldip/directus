@@ -74,7 +74,7 @@ const confirmDelete = ref(false);
 const deleting = ref(false);
 
 async function deleteFlow() {
-	if (!flow.value?.id) return;
+	if (!flow.value?.id || deleting.value) return;
 
 	deleting.value = true;
 
@@ -98,13 +98,37 @@ const stagedPanels = ref<Partial<OperationRaw & { borderRadius: [boolean, boolea
 const panelsToBeDeleted = ref<string[]>([]);
 const hoveredPanelID = ref<string | null>(null);
 
-const panels = computed(() => {
-	const savedPanels = (flow.value?.operations || []).filter(
-		(panel) => panelsToBeDeleted.value.includes(panel.id) === false,
-	);
+const savedPanels = computed(() =>
+	(flow.value?.operations || []).filter((panel) => panelsToBeDeleted.value.includes(panel.id) === false),
+);
 
+const resolveReferences = computed(() => {
+	const references = new Map();
+
+	for (const savedPanel of flow.value?.operations ?? []) {
+		if (savedPanel.resolve && savedPanel.id) {
+			references.set(savedPanel.resolve, savedPanel.id);
+		}
+	}
+
+	return references;
+});
+
+const rejectReferences = computed(() => {
+	const references = new Map();
+
+	for (const savedPanel of flow.value?.operations ?? []) {
+		if (savedPanel.reject && savedPanel.id) {
+			references.set(savedPanel.reject, savedPanel.id);
+		}
+	}
+
+	return references;
+});
+
+const panels = computed(() => {
 	const raw = [
-		...savedPanels.map((panel) => {
+		...savedPanels.value.map((panel) => {
 			const updates = stagedPanels.value.find((updatedPanel) => updatedPanel.id === panel.id);
 
 			if (updates) {
@@ -295,6 +319,39 @@ async function saveChanges() {
 
 			if (trigger && trigger.resolve !== undefined) changes.operation = trigger.resolve;
 
+			const operationReferenceResetUpdates = [];
+
+			/**
+			 * Prevents the following from occuring:
+			 *
+			 * Existing A -> B re-linked to A -> C -> B via new panel
+			 * not nullifying A -> B link before attempting to link C -> B
+			 *
+			 * Existing A -> B -> C re-linked to A -> C via delete
+			 * not nullifying B -> C link before attempting to link A -> C
+			 */
+			for (const stagedPanel of stagedPanels.value) {
+				if (stagedPanel.resolve && !stagedPanel.resolve.startsWith('_')) {
+					const resolve = resolveReferences.value.get(stagedPanel.resolve);
+
+					if (resolve && resolve !== stagedPanel.id) {
+						operationReferenceResetUpdates.push({ id: resolve, resolve: null });
+					}
+				}
+
+				if (stagedPanel.reject && !stagedPanel.reject.startsWith('_')) {
+					const reject = rejectReferences.value.get(stagedPanel.reject);
+
+					if (reject && reject !== stagedPanel.id) {
+						operationReferenceResetUpdates.push({ id: reject, reject: null });
+					}
+				}
+			}
+
+			if (operationReferenceResetUpdates.length) {
+				await api.patch(`/operations`, operationReferenceResetUpdates);
+			}
+
 			await api.patch(`/flows/${props.primaryKey}`, changes);
 		}
 
@@ -403,6 +460,8 @@ const copyPanelLoading = ref(false);
 const copyPanelChoices = computed(() => flowsStore.flows.filter((flow) => flow.id !== props.primaryKey));
 
 async function copyPanel() {
+	if (copyPanelLoading.value || copyPanelChoices.value.length === 0) return;
+
 	copyPanelLoading.value = true;
 
 	const currentPanel = panels.value.find((panel) => panel.id === copyPanelId.value);
@@ -650,7 +709,7 @@ function discardAndLeave() {
 			@done="triggerDetailOpen = false"
 		/>
 
-		<v-dialog v-model="confirmLeave" @esc="confirmLeave = false">
+		<v-dialog v-model="confirmLeave" @esc="confirmLeave = false" @apply="discardAndLeave">
 			<v-card>
 				<v-card-title>{{ t('unsaved_changes') }}</v-card-title>
 				<v-card-text>{{ t('unsaved_changes_copy') }}</v-card-text>
@@ -661,7 +720,7 @@ function discardAndLeave() {
 			</v-card>
 		</v-dialog>
 
-		<v-dialog v-model="confirmCancel" @esc="confirmCancel = false">
+		<v-dialog v-model="confirmCancel" @esc="confirmCancel = false" @apply="cancelChanges">
 			<v-card>
 				<v-card-title>{{ t('unsaved_changes') }}</v-card-title>
 				<v-card-text>{{ t('discard_changes_copy') }}</v-card-text>
@@ -672,7 +731,7 @@ function discardAndLeave() {
 			</v-card>
 		</v-dialog>
 
-		<v-dialog :model-value="confirmDelete" @esc="confirmDelete = false">
+		<v-dialog :model-value="confirmDelete" @esc="confirmDelete = false" @apply="deleteFlow">
 			<v-card>
 				<v-card-title>{{ t('flow_delete_confirm', { flow: flow?.name }) }}</v-card-title>
 
@@ -683,7 +742,12 @@ function discardAndLeave() {
 			</v-card>
 		</v-dialog>
 
-		<v-dialog :model-value="!!copyPanelId" @update:model-value="copyPanelId = undefined" @esc="copyPanelId = undefined">
+		<v-dialog
+			:model-value="!!copyPanelId"
+			@update:model-value="copyPanelId = undefined"
+			@esc="copyPanelId = undefined"
+			@apply="copyPanel"
+		>
 			<v-card>
 				<v-card-title>{{ t('copy_to') }}</v-card-title>
 

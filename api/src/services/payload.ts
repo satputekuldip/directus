@@ -1,6 +1,7 @@
 import { ForbiddenError, InvalidPayloadError } from '@directus/errors';
 import type {
 	Accountability,
+	Aggregate,
 	Alterations,
 	FieldOverview,
 	Item,
@@ -52,6 +53,7 @@ export class PayloadService {
 	helpers: Helpers;
 	collection: string;
 	schema: SchemaOverview;
+	nested: string[];
 
 	constructor(collection: string, options: AbstractServiceOptions) {
 		this.accountability = options.accountability || null;
@@ -59,6 +61,7 @@ export class PayloadService {
 		this.helpers = getHelpers(this.knex);
 		this.collection = collection;
 		this.schema = options.schema;
+		this.nested = options.nested ?? [];
 
 		return this;
 	}
@@ -155,12 +158,25 @@ export class PayloadService {
 
 	processValues(action: Action, payloads: Partial<Item>[]): Promise<Partial<Item>[]>;
 	processValues(action: Action, payload: Partial<Item>): Promise<Partial<Item>>;
-	processValues(action: Action, payloads: Partial<Item>[], aliasMap: Record<string, string>): Promise<Partial<Item>[]>;
-	processValues(action: Action, payload: Partial<Item>, aliasMap: Record<string, string>): Promise<Partial<Item>>;
+	processValues(
+		action: Action,
+		payloads: Partial<Item>[],
+		aliasMap: Record<string, string>,
+		aggregate: Aggregate,
+	): Promise<Partial<Item>[]>;
+
+	processValues(
+		action: Action,
+		payload: Partial<Item>,
+		aliasMap: Record<string, string>,
+		aggregate: Aggregate,
+	): Promise<Partial<Item>>;
+
 	async processValues(
 		action: Action,
 		payload: Partial<Item> | Partial<Item>[],
 		aliasMap: Record<string, string> = {},
+		aggregate: Aggregate = {},
 	): Promise<Partial<Item> | Partial<Item>[]> {
 		const processedPayload = toArray(payload);
 
@@ -197,8 +213,8 @@ export class PayloadService {
 			}
 		}
 
-		this.processGeometries(processedPayload, action);
-		this.processDates(processedPayload, action);
+		this.processGeometries(fieldEntries, processedPayload, action);
+		this.processDates(fieldEntries, processedPayload, action, aliasMap, aggregate);
 
 		if (['create', 'update'].includes(action)) {
 			processedPayload.forEach((record) => {
@@ -213,7 +229,7 @@ export class PayloadService {
 		}
 
 		if (action === 'read') {
-			this.processAggregates(processedPayload);
+			this.processAggregates(processedPayload, aggregate);
 		}
 
 		if (Array.isArray(payload)) {
@@ -223,9 +239,24 @@ export class PayloadService {
 		return processedPayload[0]!;
 	}
 
-	processAggregates(payload: Partial<Item>[]) {
-		const aggregateKeys = Object.keys(payload[0]!).filter((key) => key.includes('->'));
+	processAggregates(payload: Partial<Item>[], aggregate: Aggregate = {}) {
+		/**
+		 * Build access path with -> delimiter
+		 *
+		 * input: { min: [ 'date', 'datetime', 'timestamp' ] }
+		 * output: [ 'min->date', 'min->datetime', 'min->timestamp' ]
+		 */
+		const aggregateKeys = Object.entries(aggregate).reduce<string[]>((acc, [key, values]) => {
+			acc.push(...values.map((value) => `${key}->${value}`));
+			return acc;
+		}, []);
 
+		/**
+		 * Expand -> delimited keys in the payload to the equivalent expanded object
+		 *
+		 * before: { "min->date": "2025-04-09", "min->datetime": "2025-04-08T12:00:00", "min->timestamp": "2025-04-17T23:18:00.000Z" }
+		 * after: { "min": { "date": "2025-04-09", "datetime": "2025-04-08T12:00:00", "timestamp": "2025-04-17T23:18:00.000Z" } }
+		 */
 		if (aggregateKeys.length) {
 			for (const item of payload) {
 				Object.assign(item, unflatten(pick(item, aggregateKeys), { delimiter: '->' }));
@@ -267,14 +298,17 @@ export class PayloadService {
 	 * escaped. It's therefore placed as a Knex.Raw object in the payload. Thus the need
 	 * to check if the value is a raw instance before stringifying it in the next step.
 	 */
-	processGeometries<T extends Partial<Record<string, any>>[]>(payloads: T, action: Action): T {
+	processGeometries<T extends Partial<Record<string, any>>[]>(
+		fieldEntries: [string, FieldOverview][],
+		payloads: T,
+		action: Action,
+	): T {
 		const process =
 			action == 'read'
 				? (value: any) => (typeof value === 'string' ? wktToGeoJSON(value) : value)
 				: (value: any) => this.helpers.st.fromGeoJSON(typeof value == 'string' ? parseJSON(value) : value);
 
-		const fieldsInCollection = Object.entries(this.schema.collections[this.collection]!.fields);
-		const geometryColumns = fieldsInCollection.filter(([_, field]) => field.type.startsWith('geometry'));
+		const geometryColumns = fieldEntries.filter(([_, field]) => field.type.startsWith('geometry'));
 
 		for (const [name] of geometryColumns) {
 			for (const payload of payloads) {
@@ -291,14 +325,41 @@ export class PayloadService {
 	 * Knex returns `datetime` and `date` columns as Date.. This is wrong for date / datetime, as those
 	 * shouldn't return with time / timezone info respectively
 	 */
-	processDates(payloads: Partial<Record<string, any>>[], action: Action): Partial<Record<string, any>>[] {
-		const fieldsInCollection = Object.entries(this.schema.collections[this.collection]!.fields);
-
-		const dateColumns = fieldsInCollection.filter(([_name, field]) =>
-			['dateTime', 'date', 'timestamp'].includes(field.type),
+	processDates(
+		fieldEntries: [string, FieldOverview][],
+		payloads: Partial<Record<string, any>>[],
+		action: Action,
+		aliasMap: Record<string, string> = {},
+		aggregate: Aggregate = {},
+	): Partial<Record<string, any>>[] {
+		// Include aggegation e.g. "count->id" in alias map
+		const aggregateMapped = Object.fromEntries(
+			Object.entries(aggregate).reduce<string[][]>((acc, [key, values]) => {
+				acc.push(...values.map((value) => [`${key}->${value}`, value]));
+				return acc;
+			}, []),
 		);
 
-		const timeColumns = fieldsInCollection.filter(([_name, field]) => {
+		const aliasFields = { ...aliasMap, ...aggregateMapped };
+
+		for (const aliasField in aliasFields) {
+			const schemaField = aliasFields[aliasField];
+			const field = this.schema.collections[this.collection]!.fields[schemaField!];
+
+			if (field) {
+				fieldEntries.push([
+					aliasField,
+					{
+						...field,
+						field: aliasField,
+					},
+				]);
+			}
+		}
+
+		const dateColumns = fieldEntries.filter(([_name, field]) => ['dateTime', 'date', 'timestamp'].includes(field.type));
+
+		const timeColumns = fieldEntries.filter(([_name, field]) => {
 			return field.type === 'time';
 		});
 
@@ -326,7 +387,7 @@ export class PayloadService {
 					}
 
 					if (dateColumn.type === 'dateTime') {
-						const year = String(value.getFullYear());
+						const year = String(value.getFullYear()).padStart(4, '0');
 						const month = String(value.getMonth() + 1).padStart(2, '0');
 						const day = String(value.getDate()).padStart(2, '0');
 						const hours = String(value.getHours()).padStart(2, '0');
@@ -338,7 +399,7 @@ export class PayloadService {
 					}
 
 					if (dateColumn.type === 'date') {
-						const year = String(value.getFullYear());
+						const year = String(value.getFullYear()).padStart(4, '0');
 						const month = String(value.getMonth() + 1).padStart(2, '0');
 						const day = String(value.getDate()).padStart(2, '0');
 
@@ -449,6 +510,7 @@ export class PayloadService {
 				accountability: this.accountability,
 				knex: this.knex,
 				schema: this.schema,
+				nested: [...this.nested, relation.field],
 			});
 
 			const relatedPrimaryKeyField = this.schema.collections[relatedCollection]!.primary;
@@ -539,6 +601,7 @@ export class PayloadService {
 				accountability: this.accountability,
 				knex: this.knex,
 				schema: this.schema,
+				nested: [...this.nested, relation.field],
 			});
 
 			const relatedRecord: Partial<Item> = payload[relation.field];
@@ -631,6 +694,7 @@ export class PayloadService {
 				accountability: this.accountability,
 				knex: this.knex,
 				schema: this.schema,
+				nested: [...this.nested, relation.meta!.one_field!],
 			});
 
 			const recordsToUpsert: Partial<Item>[] = [];
@@ -643,18 +707,29 @@ export class PayloadService {
 				const updates = field || []; // treat falsey values as removing all children
 
 				for (let i = 0; i < updates.length; i++) {
+					const currentId = parent || payload[currentPrimaryKeyField];
 					const relatedRecord = updates[i];
+
+					const relatedId =
+						typeof relatedRecord === 'string' || typeof relatedRecord === 'number'
+							? relatedRecord
+							: relatedRecord[relatedPrimaryKeyField];
 
 					let record = cloneDeep(relatedRecord);
 
-					if (typeof relatedRecord === 'string' || typeof relatedRecord === 'number') {
-						const existingRecord = await this.knex
+					let existingRecord;
+
+					// No relatedId means it's a new record
+					if (relatedId) {
+						existingRecord = await this.knex
 							.select(relatedPrimaryKeyField, relation.field)
 							.from(relation.collection)
-							.where({ [relatedPrimaryKeyField]: record })
+							.where({ [relatedPrimaryKeyField]: relatedId })
 							.first();
+					}
 
-						if (!!existingRecord === false) {
+					if (typeof relatedRecord === 'string' || typeof relatedRecord === 'number') {
+						if (!existingRecord) {
 							throw new ForbiddenError();
 						}
 
@@ -664,11 +739,7 @@ export class PayloadService {
 						// for items that aren't actually being updated. NOTE: We use == here, as the
 						// primary key might be reported as a string instead of number, coming from the
 						// http route, and or a bigInteger in the DB
-						if (
-							isNil(existingRecord[relation.field]) === false &&
-							(existingRecord[relation.field] == parent ||
-								existingRecord[relation.field] == payload[currentPrimaryKeyField])
-						) {
+						if (isNil(existingRecord[relation.field]) === false && existingRecord[relation.field] == currentId) {
 							savedPrimaryKeys.push(existingRecord[relatedPrimaryKeyField]);
 							continue;
 						}
@@ -678,10 +749,11 @@ export class PayloadService {
 						};
 					}
 
-					recordsToUpsert.push({
-						...record,
-						[relation.field]: parent || payload[currentPrimaryKeyField],
-					});
+					if (!existingRecord || existingRecord[relation.field] != parent) {
+						record[relation.field] = currentId;
+					}
+
+					recordsToUpsert.push(record);
 				}
 
 				savedPrimaryKeys.push(
@@ -710,6 +782,7 @@ export class PayloadService {
 							},
 						],
 					},
+					limit: -1,
 				};
 
 				// Nullify all related items that aren't included in the current payload
@@ -787,26 +860,27 @@ export class PayloadService {
 				}
 
 				if (alterations.update) {
-					const primaryKeyField = this.schema.collections[relation.collection]!.primary;
-
 					for (const item of alterations.update) {
-						const { [primaryKeyField]: key, ...record } = item;
+						const { [relatedPrimaryKeyField]: key, ...record } = item;
 
-						await service.updateOne(
-							key,
-							{
-								...record,
-								[relation.field]: parent || payload[currentPrimaryKeyField],
-							},
-							{
-								onRevisionCreate: (pk) => revisions.push(pk),
-								onRequireUserIntegrityCheck: (flags) => (userIntegrityCheckFlags |= flags),
-								bypassEmitAction: (params) =>
-									opts?.bypassEmitAction ? opts.bypassEmitAction(params) : nestedActionEvents.push(params),
-								emitEvents: opts?.emitEvents,
-								mutationTracker: opts?.mutationTracker,
-							},
-						);
+						const existingRecord = await this.knex
+							.select(relatedPrimaryKeyField, relation.field)
+							.from(relation.collection)
+							.where({ [relatedPrimaryKeyField]: key })
+							.first();
+
+						if (!existingRecord || existingRecord[relation.field] != parent) {
+							record[relation.field] = parent || payload[currentPrimaryKeyField];
+						}
+
+						await service.updateOne(key, record, {
+							onRevisionCreate: (pk) => revisions.push(pk),
+							onRequireUserIntegrityCheck: (flags) => (userIntegrityCheckFlags |= flags),
+							bypassEmitAction: (params) =>
+								opts?.bypassEmitAction ? opts.bypassEmitAction(params) : nestedActionEvents.push(params),
+							emitEvents: opts?.emitEvents,
+							mutationTracker: opts?.mutationTracker,
+						});
 					}
 				}
 
@@ -826,6 +900,7 @@ export class PayloadService {
 								},
 							],
 						},
+						limit: -1,
 					};
 
 					if (relation.meta.one_deselect_action === 'delete') {

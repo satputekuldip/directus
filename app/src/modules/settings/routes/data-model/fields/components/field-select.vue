@@ -59,14 +59,22 @@ const showRelatedCollectionLink = computed(
 		['translations', 'm2o', 'm2m', 'o2m', 'files'].includes(unref(localType) as string),
 );
 
-function setWidth(width: Width) {
-	fieldsStore.updateField(props.field.collection, props.field.field, { meta: { width } });
+async function setWidth(width: Width) {
+	try {
+		await fieldsStore.updateField(props.field.collection, props.field.field, { meta: { width } });
+	} catch (error) {
+		unexpectedError(error);
+	}
 }
 
-function toggleVisibility() {
-	fieldsStore.updateField(props.field.collection, props.field.field, {
-		meta: { hidden: !props.field.meta?.hidden },
-	});
+async function toggleVisibility() {
+	try {
+		await fieldsStore.updateField(props.field.collection, props.field.field, {
+			meta: { hidden: !props.field.meta?.hidden },
+		});
+	} catch (error) {
+		unexpectedError(error);
+	}
 }
 
 function useDeleteField() {
@@ -80,6 +88,9 @@ function useDeleteField() {
 	};
 
 	async function deleteField() {
+		if (deleting.value) return;
+
+		deleting.value = true;
 		await fieldsStore.deleteField(props.field.collection, props.field.field);
 		deleting.value = false;
 		deleteActive.value = false;
@@ -102,6 +113,8 @@ function useDuplicate() {
 	};
 
 	async function saveDuplicate() {
+		if (duplicateName.value === null || duplicating.value) return;
+
 		const newField: Record<string, any> = {
 			...cloneDeep(props.field),
 			field: duplicateName.value,
@@ -141,7 +154,12 @@ function useDuplicate() {
 async function openFieldDetail() {
 	if (!props.field.meta) {
 		const special = getSpecialForType(props.field.type);
-		await fieldsStore.updateField(props.field.collection, props.field.field, { meta: { special } });
+
+		try {
+			await fieldsStore.updateField(props.field.collection, props.field.field, { meta: { special } });
+		} catch (error) {
+			unexpectedError(error);
+		}
 	}
 
 	router.push(`/settings/data-model/${props.field.collection}/${props.field.field}`);
@@ -276,7 +294,7 @@ const tFieldType = (type: string) => t(type === 'geometry' ? 'geometry.All' : ty
 				</template>
 			</v-input>
 
-			<v-dialog v-model="duplicateActive" @esc="duplicateActive = false">
+			<v-dialog v-model="duplicateActive" @esc="duplicateActive = false" @apply="saveDuplicate">
 				<v-card class="duplicate">
 					<v-card-title>{{ t('duplicate_where_to') }}</v-card-title>
 					<v-card-text>
@@ -303,7 +321,7 @@ const tFieldType = (type: string) => t(type === 'geometry' ? 'geometry.All' : ty
 				</v-card>
 			</v-dialog>
 
-			<v-dialog v-model="deleteActive" @esc="deleteActive = false">
+			<v-dialog v-model="deleteActive" @esc="deleteActive = false" @apply="deleteField">
 				<v-card>
 					<v-card-title>{{ t('delete_field_are_you_sure', { field: field.field }) }}</v-card-title>
 					<v-card-actions>
@@ -317,8 +335,6 @@ const tFieldType = (type: string) => t(type === 'geometry' ? 'geometry.All' : ty
 </template>
 
 <style lang="scss" scoped>
-@import '@/styles/mixins/form-grid';
-
 .field-select {
 	--input-height: 40px;
 	--theme--form--field--input--padding: 8px;
